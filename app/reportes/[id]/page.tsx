@@ -5,6 +5,7 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import { API_BASE_URL } from '@/app/lib/api/base-url';
 
 type ReporteDetalle = {
   id: number | string;
@@ -43,7 +44,7 @@ export default function ReporteDetallePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
-  const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? '').replace(/\/$/, '');
+  const baseUrl = API_BASE_URL;
 
   useEffect(() => {
     const fetchDetalle = async () => {
@@ -51,7 +52,7 @@ export default function ReporteDetallePage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/reportes/${id}`, {
+        const res = await fetch(`${baseUrl}/api/reportes/${id}`, {
           headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
           cache: 'no-store',
         });
@@ -187,7 +188,7 @@ export default function ReporteDetallePage() {
     }
     try {
       setExporting(documentType);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/reportes/generarDocumento`, {
+      const res = await fetch(`${baseUrl}/api/reportes/generarDocumento`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

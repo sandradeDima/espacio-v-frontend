@@ -12,6 +12,8 @@ import { ClientSearchPagination } from '@/types/apiResponses/clientSearchPaginat
 type SortField = 'nombre' | 'created_at';
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
+const onlyDigits = (value: string) => value.replace(/\D/g, '');
+const LA_PAZ_TIMEZONE = 'America/La_Paz';
 
 export default function ClientesPage() {
   const [page, setPage] = useState(1);
@@ -176,10 +178,13 @@ export default function ClientesPage() {
 
   const formatDate = (date: string) => {
     try {
+      const parsedDate = new Date(date);
+      if (Number.isNaN(parsedDate.getTime())) return date;
       return new Intl.DateTimeFormat('es-MX', {
         dateStyle: 'medium',
         timeStyle: 'short',
-      }).format(new Date(date));
+        timeZone: LA_PAZ_TIMEZONE,
+      }).format(parsedDate);
     } catch {
       return date;
     }
@@ -196,7 +201,12 @@ export default function ClientesPage() {
     setCreatingClient(true);
     setCreateError('');
     try {
-      await api.post<MensajeApi<Cliente>>('/api/clientes/', createForm);
+      const payload = {
+        ...createForm,
+        email: createForm.email.trim() || null,
+        telefono: onlyDigits(createForm.telefono),
+      };
+      await api.post<MensajeApi<Cliente>>('/api/clientes/', payload);
       setCreateModalOpen(false);
       setToastMessage('Cliente creado con éxito');
       setTimeout(() => setToastMessage(null), 3000);
@@ -240,6 +250,8 @@ export default function ClientesPage() {
       const payload = {
         ...selectedClient,
         ...editForm,
+        email: editForm.email.trim() || null,
+        telefono: onlyDigits(editForm.telefono),
       };
       const response = await api.put<MensajeApi<Cliente>>(
         `/api/clientes/${selectedClient.id}`,
@@ -336,7 +348,7 @@ export default function ClientesPage() {
                   <input
                     id="telefono"
                     value={filters.telefono}
-                    onChange={(event) => handleFilterChange('telefono', event.target.value)}
+                    onChange={(event) => handleFilterChange('telefono', onlyDigits(event.target.value))}
                     placeholder="+52 123 456 7890"
                     className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
                   />
@@ -467,7 +479,7 @@ export default function ClientesPage() {
                     clientes.map((client) => (
                       <tr key={client.id} className="border-b border-[#F7F7F7] text-[#333333]">
                         <td className="px-4 py-4 font-medium">{client.nombre}</td>
-                        <td className="px-4 py-4">{client.email}</td>
+                        <td className="px-4 py-4">{client.email || 'N/A'}</td>
                         <td className="px-4 py-4">{client.telefono || 'N/A'}</td>
                         <td className="px-4 py-4 text-sm text-[#666666]">{formatDate(client.createdAt)}</td>
                         <td className="px-4 py-4">
@@ -598,9 +610,11 @@ export default function ClientesPage() {
                   </label>
                   <input
                     id="create-telefono"
+                    inputMode="numeric"
+                    pattern="\d*"
                     value={createForm.telefono}
                     onChange={(event) =>
-                      setCreateForm((prev) => ({ ...prev, telefono: event.target.value }))
+                      setCreateForm((prev) => ({ ...prev, telefono: onlyDigits(event.target.value) }))
                     }
                     className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
                   />
@@ -689,9 +703,11 @@ export default function ClientesPage() {
                   </label>
                   <input
                     id="edit-telefono"
+                    inputMode="numeric"
+                    pattern="\d*"
                     value={editForm.telefono}
                     onChange={(event) =>
-                      setEditForm((prev) => ({ ...prev, telefono: event.target.value }))
+                      setEditForm((prev) => ({ ...prev, telefono: onlyDigits(event.target.value) }))
                     }
                     className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
                   />

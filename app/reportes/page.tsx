@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useCallback, useEffect, useMemo, useState, FormEvent } from 'react';
 import { MensajeApi } from '@/types/api';
 import Link from 'next/link';
+import { API_BASE_URL } from '@/app/lib/api/base-url';
 
 type Reporte = {
   id: number | string;
@@ -154,7 +155,7 @@ export default function ReportesPage() {
     try {
       setExporting(documentType);
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_URL}/api/reportes/generarDocumento`,
+        `${API_BASE_URL}/api/reportes/generarDocumento`,
         {
           method: 'POST',
           headers: {

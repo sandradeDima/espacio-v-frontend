@@ -1,5 +1,6 @@
 // lib/api/client.ts
 import type { MensajeApi } from "@/types/api";
+import { API_BASE_URL } from "./base-url";
 
 /**
  * Custom error that wraps API failures.
@@ -17,9 +18,6 @@ export class ApiError extends Error {
   }
 }
 
-// Base URL for your backend, configurable via .env.local
-const API_BASE = process.env.NEXT_PUBLIC_BASE_URL ?? "PRUEBA";
-
 /**
  * Core request function.
  * - Accepts an HTTP method (GET/POST/etc.), a path, and optional body.
@@ -35,9 +33,7 @@ async function request<T>(
   accessToken?: string
 ): Promise<T> {
   // If path is absolute (starts with http), use as-is; else prefix with base URL.
-  const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
-  console.log("api base", API_BASE);
-  console.log(url);
+  const url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
   
   // Prepare headers
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -71,7 +67,6 @@ async function request<T>(
   if (payload.error) {
     throw new ApiError(payload.message, payload.code, payload.technicalMessage);
   }
-  console.log("payload", payload);
   // Otherwise return just the data
   return payload as T;
 }

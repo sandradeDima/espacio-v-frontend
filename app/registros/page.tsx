@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { MensajeApi } from '@/types/api';
 import { Cliente } from '@/types/client';
 import Modal from '@/app/components/Modal';
+import { API_BASE_URL } from '@/app/lib/api/base-url';
 
 type Coloracion = {
   id: number | string;
@@ -24,6 +25,8 @@ type RegistroForm = {
   observaciones: string;
   evidencias: File[];
 };
+
+const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
 export default function RegistroServicioPage() {
   const api = useApi();
@@ -206,8 +209,7 @@ export default function RegistroServicioPage() {
       formData.append('precio', form.precio || '0');
       form.evidencias.forEach((file) => formData.append('fotos', file));
 
-      const base = process.env.NEXT_PUBLIC_BASE_URL ?? 'PRUEBA';
-      const res = await fetch(`${base}/api/reportes/completo`, {
+      const res = await fetch(`${API_BASE_URL}/api/reportes/completo`, {
         method: 'POST',
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         body: formData,
@@ -241,7 +243,12 @@ export default function RegistroServicioPage() {
     setCreatingClient(true);
     setCreateClientError('');
     try {
-      const resp = await api.post<MensajeApi<Cliente>>('/api/clientes/', createClientForm);
+      const payload = {
+        ...createClientForm,
+        email: createClientForm.email.trim() || null,
+        telefono: onlyDigits(createClientForm.telefono),
+      };
+      const resp = await api.post<MensajeApi<Cliente>>('/api/clientes/', payload);
       const newClient =
         (resp?.data as any)?.cliente || (resp?.data as any) || (resp as unknown as Cliente);
       if (newClient) {
@@ -644,8 +651,10 @@ export default function RegistroServicioPage() {
             </label>
             <input
               id="new-telefono"
+              inputMode="numeric"
+              pattern="\d*"
               value={createClientForm.telefono}
-              onChange={(e) => setCreateClientForm((p) => ({ ...p, telefono: e.target.value }))}
+              onChange={(e) => setCreateClientForm((p) => ({ ...p, telefono: onlyDigits(e.target.value) }))}
               className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
             />
           </div>
