@@ -21,6 +21,16 @@ type Reporte = {
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20];
 
+const parseCalendarDate = (date: string) => {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+
+  const parsed = new Date(date);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 export default function ReportesPage() {
   const api = useApi();
   const { isLoading, isAuthenticated, accessToken } = useAuth();
@@ -40,12 +50,15 @@ export default function ReportesPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const formatDate = (date: string) => {
     try {
+      const parsedDate = parseCalendarDate(date);
+      if (!parsedDate) return date;
       return new Intl.DateTimeFormat('es-MX', {
         dateStyle: 'medium',
-      }).format(new Date(date));
+      }).format(parsedDate);
     } catch {
       return date;
     }
@@ -192,6 +205,43 @@ export default function ReportesPage() {
     }
   };
 
+  const handleDeleteReporte = async (reporte: Reporte) => {
+    if (!accessToken) {
+      setErrorMessage('No hay sesión activa. Vuelve a iniciar sesión.');
+      return;
+    }
+
+    const reporteId = String(reporte.id);
+    const confirmed = window.confirm(
+      `¿Eliminar el reporte de ${reporte.clienteNombre || 'este cliente'}? Esta acción no se puede deshacer.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(reporteId);
+    setErrorMessage(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/reportes/${reporteId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'No se pudo eliminar el reporte.');
+      }
+
+      setReportes((prev) => prev.filter((item) => String(item.id) !== reporteId));
+      setSelectedIds((prev) => prev.filter((id) => id !== reporteId));
+    } catch (error) {
+      console.error('Error deleting reporte:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo eliminar el reporte.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const normalizeText = (value?: string) =>
     value
       ? value
@@ -225,7 +275,7 @@ export default function ReportesPage() {
 
     const byDate = startDateObj || endDateObj
       ? byFormula.filter((r) => {
-          const fecha = r.fecha ? new Date(r.fecha) : null;
+          const fecha = r.fecha ? parseCalendarDate(r.fecha) : null;
           if (!fecha || Number.isNaN(fecha.getTime())) return false;
           const afterStart = startDateObj ? fecha >= startDateObj : true;
           const beforeEnd = endDateObj ? fecha <= endDateObj : true;
@@ -519,7 +569,78 @@ export default function ReportesPage() {
                 </div>
               )}
 
-              <div className="overflow-x-auto">
+              <div className="space-y-3 md:hidden">
+                {loading && (
+                  <div className="rounded-xl border border-[#F1F3F4] px-4 py-6 text-center">
+                    <div className="inline-flex items-center gap-3 text-sm text-[#666666]">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#1A2B42] border-t-transparent" />
+                      Cargando reportes...
+                    </div>
+                  </div>
+                )}
+
+                {!loading && pageData.length === 0 && (
+                  <div className="rounded-xl border border-[#F1F3F4] px-4 py-6 text-center text-sm text-[#666666]">
+                    No encontramos reportes con los filtros aplicados.
+                  </div>
+                )}
+
+                {!loading &&
+                  pageData.map((reporte) => {
+                    const reporteId = String(reporte.id);
+                    const isDeleting = deletingId === reporteId;
+                    return (
+                      <article key={reporte.id} className="rounded-xl border border-[#E5E7EB] p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold text-[#4B5563]">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(reporteId)}
+                              onChange={() => toggleSelect(reporte.id)}
+                              className="h-4 w-4 rounded border-[#CBD5E1] text-[#1A2B42] focus:ring-[#1A2B42]"
+                            />
+                            Seleccionar
+                          </label>
+                          <span className="text-xs text-[#6B7280]">{formatDate(reporte.fecha)}</span>
+                        </div>
+
+                        <div className="mt-3 flex flex-col gap-2">
+                          <p className="text-sm font-semibold text-[#1A2B42]">{reporte.clienteNombre}</p>
+                          {reporte.clienteTelefono && (
+                            <p className="text-xs text-[#6B7280]">{reporte.clienteTelefono}</p>
+                          )}
+                          <span
+                            className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold ${chipColor(
+                              reporte.coloracion?.toLowerCase()
+                            )}`}
+                          >
+                            {reporte.coloracion?.toLowerCase() || '—'}
+                          </span>
+                          <p className="text-xs text-[#4B5563]">{reporte.formula || 'Sin fórmula'}</p>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          <Link
+                            href={`/reportes/${reporte.id}`}
+                            className="inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] px-3 py-2 text-xs font-semibold text-[#0B0B0D] transition hover:bg-[#f7f3eb]"
+                          >
+                            Ver detalle
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteReporte(reporte)}
+                            disabled={isDeleting}
+                            className="inline-flex items-center justify-center rounded-lg border border-[#FECACA] px-3 py-2 text-xs font-semibold text-red-700 transition enabled:hover:bg-red-50 disabled:opacity-60"
+                          >
+                            {isDeleting ? 'Eliminando...' : 'Eliminar'}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
                 <table className="min-w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-[#F1F3F4] text-xs uppercase tracking-wide text-[#9AA0A6]">
@@ -560,57 +681,71 @@ export default function ReportesPage() {
                     )}
 
                     {!loading &&
-                      pageData.map((reporte) => (
-                        <tr key={reporte.id} className="border-b border-[#F7F7F7] text-[#333333]">
-                          <td className="px-4 py-4">
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.includes(String(reporte.id))}
-                              onChange={() => toggleSelect(reporte.id)}
-                              className="h-4 w-4 rounded border-[#CBD5E1] text-[#1A2B42] focus:ring-[#1A2B42]"
-                            />
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="flex flex-col">
-                              <span className="font-semibold">{reporte.clienteNombre}</span>
-                              {reporte.clienteTelefono && (
-                                <span className="text-xs text-[#6B7280]">{reporte.clienteTelefono}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 text-sm text-[#4B5563]">{formatDate(reporte.fecha)}</td>
-                          <td className="px-4 py-4">
-                            <span
-                              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${chipColor(
-                                reporte.coloracion?.toLowerCase()
-                              )}`}
-                            >
-                              {reporte.coloracion?.toLowerCase() || '—'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 text-sm text-[#4B5563]">{reporte.formula || '—'}</td>
-                          <td className="px-4 py-4 text-sm text-[#4B5563]">{reporte.observaciones || '—'}</td>
-                          <td className="px-4 py-4 text-right">
-                            <Link
-                              href={`/reportes/${reporte.id}`}
-                              className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] px-3 py-2 text-xs font-semibold text-[#0B0B0D] transition hover:bg-[#f7f3eb]"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                className="h-4 w-4"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
+                      pageData.map((reporte) => {
+                        const reporteId = String(reporte.id);
+                        const isDeleting = deletingId === reporteId;
+                        return (
+                          <tr key={reporte.id} className="border-b border-[#F7F7F7] text-[#333333]">
+                            <td className="px-4 py-4">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.includes(reporteId)}
+                                onChange={() => toggleSelect(reporte.id)}
+                                className="h-4 w-4 rounded border-[#CBD5E1] text-[#1A2B42] focus:ring-[#1A2B42]"
+                              />
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-col">
+                                <span className="font-semibold">{reporte.clienteNombre}</span>
+                                {reporte.clienteTelefono && (
+                                  <span className="text-xs text-[#6B7280]">{reporte.clienteTelefono}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 text-sm text-[#4B5563]">{formatDate(reporte.fecha)}</td>
+                            <td className="px-4 py-4">
+                              <span
+                                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${chipColor(
+                                  reporte.coloracion?.toLowerCase()
+                                )}`}
                               >
-                                <circle cx="12" cy="12" r="10" />
-                                <path d="M12 16v.01" />
-                                <path d="M12 12V8" />
-                              </svg>
-                              Ver detalle
-                            </Link>
-                          </td>
-                        </tr>
-                      ))}
+                                {reporte.coloracion?.toLowerCase() || '—'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 text-sm text-[#4B5563]">{reporte.formula || '—'}</td>
+                            <td className="px-4 py-4 text-sm text-[#4B5563]">{reporte.observaciones || '—'}</td>
+                            <td className="px-4 py-4 text-right">
+                              <div className="inline-flex items-center gap-2">
+                                <Link
+                                  href={`/reportes/${reporte.id}`}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] px-3 py-2 text-xs font-semibold text-[#0B0B0D] transition hover:bg-[#f7f3eb]"
+                                >
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <circle cx="12" cy="12" r="10" />
+                                    <path d="M12 16v.01" />
+                                    <path d="M12 12V8" />
+                                  </svg>
+                                  Ver detalle
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteReporte(reporte)}
+                                  disabled={isDeleting}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-[#FECACA] px-3 py-2 text-xs font-semibold text-red-700 transition enabled:hover:bg-red-50 disabled:opacity-60"
+                                >
+                                  {isDeleting ? 'Eliminando...' : 'Eliminar'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>

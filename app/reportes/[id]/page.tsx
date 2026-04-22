@@ -25,10 +25,20 @@ type ReporteDetalle = {
   updatedAt?: string;
 };
 
+const parseCalendarDate = (date: string) => {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+
+  const parsed = new Date(date);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 export default function ReporteDetallePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { isLoading: authLoading, isAuthenticated, accessToken } = useAuth();
 
   const [detalle, setDetalle] = useState<ReporteDetalle | null>(null);
   const [fotoNames, setFotoNames] = useState<string[]>([]);
@@ -44,16 +54,29 @@ export default function ReporteDetallePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [newPhotos, setNewPhotos] = useState<File[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const baseUrl = API_BASE_URL;
 
   useEffect(() => {
     const fetchDetalle = async () => {
-      if (!id) return;
+      if (!id) {
+        setLoading(false);
+        return;
+      }
+      if (authLoading) return;
+      if (!isAuthenticated || !accessToken) {
+        setLoading(false);
+        setError('No hay sesión activa. Vuelve a iniciar sesión.');
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
         const res = await fetch(`${baseUrl}/api/reportes/${id}`, {
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+          headers: { Authorization: `Bearer ${accessToken}` },
           cache: 'no-store',
         });
         if (!res.ok) {
@@ -107,18 +130,20 @@ export default function ReporteDetallePage() {
     };
 
     fetchDetalle();
-  }, [accessToken, id]);
+  }, [accessToken, authLoading, baseUrl, id, isAuthenticated]);
 
   useEffect(() => {
     const fetchLookups = async () => {
+      if (authLoading || !isAuthenticated || !accessToken) return;
+
       try {
         const [clientesRes, coloracionesRes] = await Promise.all([
           fetch(`${baseUrl}/api/clientes/`, {
-            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+            headers: { Authorization: `Bearer ${accessToken}` },
             cache: 'no-store',
           }),
           fetch(`${baseUrl}/api/coloraciones/`, {
-            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+            headers: { Authorization: `Bearer ${accessToken}` },
             cache: 'no-store',
           }),
         ]);
@@ -163,12 +188,23 @@ export default function ReporteDetallePage() {
     };
 
     fetchLookups();
-  }, [accessToken, baseUrl]);
+  }, [accessToken, authLoading, baseUrl, isAuthenticated]);
 
   const formatDate = (date?: string) => {
     if (!date) return '—';
     try {
       return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(new Date(date));
+    } catch {
+      return date;
+    }
+  };
+
+  const formatServiceDate = (date?: string) => {
+    if (!date) return '—';
+    try {
+      const parsedDate = parseCalendarDate(date);
+      if (!parsedDate) return date;
+      return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(parsedDate);
     } catch {
       return date;
     }
@@ -224,6 +260,7 @@ export default function ReporteDetallePage() {
   const handleEditStart = () => {
     if (!detalle) return;
     setDraft(detalle);
+    setNewPhotos([]);
     setEditable(true);
     setSaveError(null);
   };
@@ -231,7 +268,48 @@ export default function ReporteDetallePage() {
   const handleCancelEdit = () => {
     setEditable(false);
     setSaveError(null);
+    setNewPhotos([]);
     setDraft(detalle);
+  };
+
+  const handleNewPhotosChange = (files: FileList | null) => {
+    if (!files) return;
+    setNewPhotos((prev) => [...prev, ...Array.from(files)]);
+  };
+
+  const handleRemoveNewPhoto = (index: number) => {
+    setNewPhotos((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleDeleteReporte = async () => {
+    if (!id) return;
+    if (!accessToken) {
+      setDeleteError('No hay sesión activa. Vuelve a iniciar sesión.');
+      return;
+    }
+    const confirmed = window.confirm('¿Seguro que quieres eliminar este reporte? Esta acción no se puede deshacer.');
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/reportes/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'No se pudo eliminar el reporte.');
+      }
+      router.push('/reportes');
+    } catch (err) {
+      console.error('Error eliminando reporte', err);
+      setDeleteError(err instanceof Error ? err.message : 'No se pudo eliminar el reporte.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSave = async () => {
@@ -298,7 +376,38 @@ export default function ReporteDetallePage() {
       };
       setDetalle(nextDetalle);
       setDraft(nextDetalle);
+
+      if (newPhotos.length > 0) {
+        const formData = new FormData();
+        newPhotos.forEach((file) => formData.append('fotos', file));
+
+        const photosRes = await fetch(`${baseUrl}/api/reportes/${id}/fotos`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: formData,
+        });
+        if (!photosRes.ok) {
+          const text = await photosRes.text();
+          throw new Error(text || 'Se actualizó el reporte, pero no pudimos subir las fotos.');
+        }
+
+        const photosPayload = await photosRes.json();
+        const photosData = (photosPayload?.data as any) ?? photosPayload;
+        const uploadedNames =
+          (Array.isArray(photosData?.fotoNames) ? photosData.fotoNames : null) ??
+          (Array.isArray(photosData?.fotos)
+            ? photosData.fotos.map((foto: { filename?: string }) => foto.filename).filter(Boolean)
+            : []);
+
+        if (uploadedNames.length > 0) {
+          setFotoNames((prev) => [...prev, ...uploadedNames]);
+        }
+      }
+
       setEditable(false);
+      setNewPhotos([]);
     } catch (err) {
       console.error('Error guardando reporte', err);
       setSaveError(err instanceof Error ? err.message : 'Error al guardar el reporte.');
@@ -383,10 +492,19 @@ export default function ReporteDetallePage() {
                   )}
                   PDF
                 </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteReporte}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#FECACA] px-3 py-2 text-xs font-semibold text-red-700 transition enabled:hover:bg-red-50 disabled:opacity-60"
+                >
+                  {deleting ? 'Eliminando...' : 'Eliminar reporte'}
+                </button>
               </div>
             </div>
 
             {exportError && <p className="mt-2 text-sm text-red-600">{exportError}</p>}
+            {deleteError && <p className="mt-2 text-sm text-red-600">{deleteError}</p>}
             {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
             {loading ? (
@@ -437,7 +555,7 @@ export default function ReporteDetallePage() {
                     </div>
                     <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FBFF] px-4 py-3">
                       <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Fecha</p>
-                      <p className="text-sm font-semibold text-[#1A2B42]">{formatDate(detalle?.fecha)}</p>
+                      <p className="text-sm font-semibold text-[#1A2B42]">{formatServiceDate(detalle?.fecha)}</p>
                     </div>
                     <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FBFF] px-4 py-3">
                       <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Hora</p>
@@ -532,6 +650,37 @@ export default function ReporteDetallePage() {
                         className="min-h-[96px] rounded-lg border border-[#E0E3E7] px-3 py-2 text-sm text-[#1F2937] outline-none focus:border-[#1A2B42] disabled:bg-[#F3F4F6]"
                       />
                     </div>
+                    {editable && (
+                      <div className="flex flex-col gap-2">
+                        <label className="text-xs font-semibold text-[#666666]">Agregar más fotos</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => handleNewPhotosChange(e.target.files)}
+                          className="rounded-lg border border-[#E0E3E7] px-3 py-2 text-sm text-[#1F2937] file:mr-3 file:rounded-md file:border-0 file:bg-[#EEF2FF] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[#1A2B42]"
+                        />
+                        {newPhotos.length > 0 && (
+                          <ul className="space-y-1">
+                            {newPhotos.map((file, idx) => (
+                              <li
+                                key={`${file.name}-${idx}`}
+                                className="flex items-center justify-between rounded-md bg-[#F5F7FA] px-3 py-2 text-xs text-[#334155]"
+                              >
+                                <span className="truncate pr-2">{file.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveNewPhoto(idx)}
+                                  className="rounded border border-[#E5E7EB] px-2 py-1 text-[11px] font-semibold text-[#334155] transition hover:bg-white"
+                                >
+                                  Quitar
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {saveError && <p className="text-sm text-red-600">{saveError}</p>}

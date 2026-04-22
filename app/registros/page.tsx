@@ -8,6 +8,7 @@ import { MensajeApi } from '@/types/api';
 import { Cliente } from '@/types/client';
 import Modal from '@/app/components/Modal';
 import { API_BASE_URL } from '@/app/lib/api/base-url';
+import { useRouter } from 'next/navigation';
 
 type Coloracion = {
   id: number | string;
@@ -26,10 +27,31 @@ type RegistroForm = {
   evidencias: File[];
 };
 
+type CreatedReportePayload = {
+  id?: number | string;
+  reporteId?: number | string;
+  reporte?: {
+    id?: number | string;
+    reporteId?: number | string;
+  };
+};
+
 const onlyDigits = (value: string) => value.replace(/\D/g, '');
+
+const toLocalDateTimeInputValue = (date = new Date()) => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+};
+
+const getCreatedReporteId = (payload?: CreatedReportePayload) =>
+  payload?.reporte?.id ?? payload?.reporte?.reporteId ?? payload?.id ?? payload?.reporteId;
 
 export default function RegistroServicioPage() {
   const api = useApi();
+  const router = useRouter();
   const { isLoading, isAuthenticated, accessToken } = useAuth();
 
   const [clientQuery, setClientQuery] = useState('');
@@ -54,7 +76,7 @@ export default function RegistroServicioPage() {
   const [form, setForm] = useState<RegistroForm>({
     clienteId: null,
     coloracionId: null,
-    fecha: new Date().toISOString().slice(0, 16),
+    fecha: toLocalDateTimeInputValue(),
     tipoServicio: '',
     precio: '',
     formula: '',
@@ -180,7 +202,7 @@ export default function RegistroServicioPage() {
     setForm({
       clienteId: null,
       coloracionId: null,
-      fecha: new Date().toISOString().slice(0, 16),
+      fecha: toLocalDateTimeInputValue(),
       tipoServicio: '',
       precio: '',
       formula: '',
@@ -214,12 +236,15 @@ export default function RegistroServicioPage() {
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         body: formData,
       });
-      const data = (await res.json()) as MensajeApi<unknown>;
-      if (!res.ok || (data as any)?.error) {
-        throw new Error((data as any)?.message || 'No pudimos guardar el reporte.');
+      const data = (await res.json()) as MensajeApi<CreatedReportePayload>;
+      if (!res.ok || data.error) {
+        throw new Error(data.message || 'No pudimos guardar el reporte.');
       }
-      setSubmitMessage((data as any)?.message || 'Registro guardado con éxito');
-      resetForm();
+      const createdReporteId = getCreatedReporteId(data.data ?? (data as unknown as CreatedReportePayload));
+      if (!createdReporteId) {
+        throw new Error('El reporte se guardó, pero no pudimos abrir el detalle automáticamente.');
+      }
+      router.push(`/reportes/${encodeURIComponent(String(createdReporteId))}`);
     } catch (error) {
       console.error('Error creando reporte', error);
       setSubmitError(error instanceof Error ? error.message : 'No pudimos guardar el reporte.');
@@ -386,7 +411,7 @@ export default function RegistroServicioPage() {
                               key={client.id}
                               type="button"
                               onClick={() => handleSelectClient(client)}
-                              className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm transition hover:bg-[#F5F7FA] ${
+                              className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm text-[#1F2937] transition hover:bg-[#F5F7FA] ${
                                 selectedClient?.id === client.id ? 'bg-[#EEF2FF] font-semibold' : ''
                               }`}
                             >
@@ -491,7 +516,7 @@ export default function RegistroServicioPage() {
                                 key={service.id}
                                 type="button"
                                 onClick={() => handleSelectService(service)}
-                                className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm transition hover:bg-[#F5F7FA] ${
+                                className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm text-[#1F2937] transition hover:bg-[#F5F7FA] ${
                                   selectedService?.id === service.id ? 'bg-[#EEF2FF] font-semibold' : ''
                                 }`}
                               >
