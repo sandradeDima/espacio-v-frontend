@@ -13,13 +13,19 @@ type Reporte = {
   clienteNombre: string;
   clienteTelefono?: string;
   fecha: string;
+  horaServicio?: string;
   coloracion?: string;
   coloracion_desc?: string;
   formula?: string;
   observaciones?: string;
 };
 
+type ApiRecord = Record<string, unknown>;
+
 const PAGE_SIZE_OPTIONS = [5, 10, 20];
+
+const isRecord = (value: unknown): value is ApiRecord =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const parseCalendarDate = (date: string) => {
   const match = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -52,13 +58,16 @@ export default function ReportesPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const formatDate = (date: string) => {
+  const formatDate = (date: string, time?: string) => {
     try {
       const parsedDate = parseCalendarDate(date);
       if (!parsedDate) return date;
-      return new Intl.DateTimeFormat('es-MX', {
+      const formattedDate = new Intl.DateTimeFormat('es-MX', {
         dateStyle: 'medium',
       }).format(parsedDate);
+      const timeMatch = time?.match(/^(\d{2}):(\d{2})/);
+      const formattedTime = timeMatch ? `${timeMatch[1]}:${timeMatch[2]}` : '';
+      return formattedTime ? `${formattedDate}, ${formattedTime}` : formattedDate;
     } catch {
       return date;
     }
@@ -85,15 +94,45 @@ export default function ReportesPage() {
         (response?.data as unknown[]) ??
         [];
 
-      const normalized: Reporte[] = raw.map((item: any, idx: number) => ({
-        id: item?.id ?? item?.reporteId ?? `reporte-${idx}`,
-        clienteNombre: item?.clienteNombre ?? item?.cliente?.nombre ?? 'Sin nombre',
-        clienteTelefono: item?.clienteTelefono ?? item?.cliente?.telefono ?? '',
-        fecha: item?.fecha ?? item?.fechaServicio ?? item?.createdAt ?? '',
-        coloracion: item?.coloracion ?? item?.tipo ?? '',
-        formula: item?.formula ?? item?.detalle ?? '',
-        observaciones: item?.observaciones ?? item?.nota ?? '',
-      }));
+      const normalized: Reporte[] = raw.map((item, idx) => {
+        const record = isRecord(item) ? item : {};
+        const cliente = isRecord(record.cliente) ? record.cliente : null;
+
+        return {
+          id:
+            (typeof record.id === 'string' || typeof record.id === 'number' ? record.id : undefined) ??
+            (typeof record.reporteId === 'string' || typeof record.reporteId === 'number'
+              ? record.reporteId
+              : undefined) ??
+            `reporte-${idx}`,
+          clienteNombre:
+            (typeof record.clienteNombre === 'string' ? record.clienteNombre : undefined) ??
+            (typeof cliente?.nombre === 'string' ? cliente.nombre : undefined) ??
+            'Sin nombre',
+          clienteTelefono:
+            (typeof record.clienteTelefono === 'string' ? record.clienteTelefono : undefined) ??
+            (typeof cliente?.telefono === 'string' ? cliente.telefono : undefined) ??
+            '',
+          fecha:
+            (typeof record.fecha === 'string' ? record.fecha : undefined) ??
+            (typeof record.fechaServicio === 'string' ? record.fechaServicio : undefined) ??
+            (typeof record.createdAt === 'string' ? record.createdAt : undefined) ??
+            '',
+          horaServicio: typeof record.horaServicio === 'string' ? record.horaServicio : '',
+          coloracion:
+            (typeof record.coloracion === 'string' ? record.coloracion : undefined) ??
+            (typeof record.tipo === 'string' ? record.tipo : undefined) ??
+            '',
+          formula:
+            (typeof record.formula === 'string' ? record.formula : undefined) ??
+            (typeof record.detalle === 'string' ? record.detalle : undefined) ??
+            '',
+          observaciones:
+            (typeof record.observaciones === 'string' ? record.observaciones : undefined) ??
+            (typeof record.nota === 'string' ? record.nota : undefined) ??
+            '',
+        };
+      });
 
       setReportes(normalized);
       setPage(1);
@@ -103,7 +142,7 @@ export default function ReportesPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, api, filters.endDate, filters.startDate, isAuthenticated, isLoading]);
+  }, [accessToken, api, isAuthenticated, isLoading]);
 
   useEffect(() => {
     fetchReportes();
@@ -569,6 +608,12 @@ export default function ReportesPage() {
                 </div>
               )}
 
+              {exportError && (
+                <div className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
+                  {exportError}
+                </div>
+              )}
+
               <div className="space-y-3 md:hidden">
                 {loading && (
                   <div className="rounded-xl border border-[#F1F3F4] px-4 py-6 text-center">
@@ -601,7 +646,7 @@ export default function ReportesPage() {
                             />
                             Seleccionar
                           </label>
-                          <span className="text-xs text-[#6B7280]">{formatDate(reporte.fecha)}</span>
+                          <span className="text-xs text-[#6B7280]">{formatDate(reporte.fecha, reporte.horaServicio)}</span>
                         </div>
 
                         <div className="mt-3 flex flex-col gap-2">
@@ -702,7 +747,7 @@ export default function ReportesPage() {
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-4 text-sm text-[#4B5563]">{formatDate(reporte.fecha)}</td>
+                            <td className="px-4 py-4 text-sm text-[#4B5563]">{formatDate(reporte.fecha, reporte.horaServicio)}</td>
                             <td className="px-4 py-4">
                               <span
                                 className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${chipColor(

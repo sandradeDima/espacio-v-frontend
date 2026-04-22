@@ -2,7 +2,7 @@
 
 import DashboardShell from '@/components/DashboardShell';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/app/lib/api/base-url';
@@ -25,6 +25,66 @@ type ReporteDetalle = {
   updatedAt?: string;
 };
 
+type FotoReporte = {
+  id: number | string;
+  filename: string;
+};
+
+type ApiRecord = Record<string, unknown>;
+type Scalar = string | number;
+
+const isRecord = (value: unknown): value is ApiRecord =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const getRecord = (record: ApiRecord | null | undefined, key: string) => {
+  const value = record?.[key];
+  return isRecord(value) ? value : null;
+};
+
+const getScalar = (value: unknown): Scalar | undefined =>
+  typeof value === 'string' || typeof value === 'number' ? value : undefined;
+
+const getString = (value: unknown): string | undefined => {
+  const scalar = getScalar(value);
+  return scalar === undefined ? undefined : String(scalar);
+};
+
+const getPayloadData = (payload: unknown): unknown => {
+  if (!isRecord(payload)) return payload;
+  return payload.data ?? payload;
+};
+
+const normalizeReporte = (reporte: ApiRecord, fallbackId: string): ReporteDetalle => {
+  const cliente = getRecord(reporte, 'cliente');
+
+  return {
+    id: getScalar(reporte.id) ?? fallbackId,
+    clienteId: getScalar(reporte.clienteId) ?? getScalar(cliente?.id),
+    coloracionId: getScalar(reporte.coloracionId) ?? getScalar(getRecord(reporte, 'coloracion')?.id),
+    clienteNombre:
+      getString(reporte.clienteNombre) ?? getString(cliente?.nombre) ?? 'Sin nombre',
+    clienteTelefono: getString(reporte.clienteTelefono) ?? getString(cliente?.telefono) ?? '',
+    clienteEmail: getString(reporte.clienteEmail) ?? getString(cliente?.email) ?? '',
+    fecha: getString(reporte.fechaServicio) ?? getString(reporte.fecha) ?? '',
+    horaServicio: getString(reporte.horaServicio) ?? '',
+    coloracion: getString(reporte.coloracion) ?? getString(reporte.tipo) ?? '',
+    coloracion_desc: getString(reporte.coloracion_desc) ?? '',
+    formula: getString(reporte.formula) ?? getString(reporte.detalle) ?? '',
+    observaciones: getString(reporte.observaciones) ?? getString(reporte.nota) ?? '',
+    precio: getScalar(reporte.precio),
+    createdAt: getString(reporte.createdAt),
+    updatedAt: getString(reporte.updatedAt),
+  };
+};
+
+const normalizeFotoReporte = (foto: unknown, fallbackId: string): FotoReporte | null => {
+  if (!isRecord(foto)) return null;
+  const id = getScalar(foto.id);
+  const filename = getString(foto.filename);
+  if (!id || !filename) return null;
+  return { id, filename: filename || fallbackId };
+};
+
 const parseCalendarDate = (date: string) => {
   const match = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (match) {
@@ -35,13 +95,41 @@ const parseCalendarDate = (date: string) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const toDateInputValue = (date?: string) => {
+  if (!date) return '';
+  const match = date.match(/^\d{4}-\d{2}-\d{2}/);
+  if (match) return match[0];
+
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeTimeValue = (time?: string) => {
+  if (!time) return '';
+  const match = time.match(/^(\d{2}):(\d{2})/);
+  return match ? `${match[1]}:${match[2]}` : '';
+};
+
+const hasBeenUpdated = (reporte?: Pick<ReporteDetalle, 'createdAt' | 'updatedAt'> | null) => {
+  if (!reporte?.updatedAt || !reporte.createdAt) return false;
+  const created = new Date(reporte.createdAt).getTime();
+  const updated = new Date(reporte.updatedAt).getTime();
+  if (Number.isNaN(created) || Number.isNaN(updated)) return false;
+  return updated > created;
+};
+
 export default function ReporteDetallePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { isLoading: authLoading, isAuthenticated, accessToken } = useAuth();
 
   const [detalle, setDetalle] = useState<ReporteDetalle | null>(null);
-  const [fotoNames, setFotoNames] = useState<string[]>([]);
+  const [fotos, setFotos] = useState<FotoReporte[]>([]);
+  const [editableFotos, setEditableFotos] = useState<FotoReporte[]>([]);
   const [clientes, setClientes] = useState<{ id: number | string; nombre: string }[]>([]);
   const [coloraciones, setColoraciones] = useState<
     { id: number | string; nombre: string; descripcion?: string }[]
@@ -58,6 +146,29 @@ export default function ReporteDetallePage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const baseUrl = API_BASE_URL;
+
+  const getPhotoSrc = (filename: string) => `${baseUrl}/images/${filename}`;
+
+  const fetchFotos = useCallback(
+    async (reporteId: string) => {
+      if (!accessToken) return [];
+      const res = await fetch(`${baseUrl}/api/fotos-reportes/reporte/${reporteId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'No pudimos cargar las fotos del reporte.');
+      }
+      const payload: unknown = await res.json();
+      const data = getPayloadData(payload);
+      const records = Array.isArray(data) ? data : [];
+      return records
+        .map((foto, idx) => normalizeFotoReporte(foto, `foto-${idx}`))
+        .filter((foto): foto is FotoReporte => Boolean(foto));
+    },
+    [accessToken, baseUrl]
+  );
 
   useEffect(() => {
     const fetchDetalle = async () => {
@@ -83,44 +194,19 @@ export default function ReporteDetallePage() {
           const text = await res.text();
           throw new Error(text || 'No pudimos obtener el detalle.');
         }
-        const payload = await res.json();
-        const data = (payload?.data as any) ?? payload;
-        const reporte = (data?.reporte as any) ?? data;
-        setDetalle({
-          id: reporte?.id ?? id,
-          clienteId: reporte?.clienteId ?? reporte?.cliente?.id,
-          coloracionId: reporte?.coloracionId ?? reporte?.coloracion?.id,
-          clienteNombre: reporte?.clienteNombre ?? reporte?.cliente?.nombre ?? 'Sin nombre',
-          clienteTelefono: reporte?.clienteTelefono ?? reporte?.cliente?.telefono ?? '',
-          clienteEmail: reporte?.clienteEmail ?? reporte?.cliente?.email ?? '',
-          fecha: reporte?.fechaServicio ?? reporte?.fecha ?? reporte?.createdAt ?? '',
-          horaServicio: reporte?.horaServicio ?? '',
-          coloracion: reporte?.coloracion ?? reporte?.tipo ?? '',
-          coloracion_desc: reporte?.coloracion_desc ?? '',
-          formula: reporte?.formula ?? reporte?.detalle ?? '',
-          observaciones: reporte?.observaciones ?? reporte?.nota ?? '',
-          precio: reporte?.precio,
-          createdAt: reporte?.createdAt,
-          updatedAt: reporte?.updatedAt,
-        });
-        setDraft({
-          id: reporte?.id ?? id,
-          clienteId: reporte?.clienteId ?? reporte?.cliente?.id,
-          coloracionId: reporte?.coloracionId ?? reporte?.coloracion?.id,
-          clienteNombre: reporte?.clienteNombre ?? reporte?.cliente?.nombre ?? 'Sin nombre',
-          clienteTelefono: reporte?.clienteTelefono ?? reporte?.cliente?.telefono ?? '',
-          clienteEmail: reporte?.clienteEmail ?? reporte?.cliente?.email ?? '',
-          fecha: reporte?.fechaServicio ?? reporte?.fecha ?? reporte?.createdAt ?? '',
-          horaServicio: reporte?.horaServicio ?? '',
-          coloracion: reporte?.coloracion ?? reporte?.tipo ?? '',
-          coloracion_desc: reporte?.coloracion_desc ?? '',
-          formula: reporte?.formula ?? reporte?.detalle ?? '',
-          observaciones: reporte?.observaciones ?? reporte?.nota ?? '',
-          precio: reporte?.precio,
-          createdAt: reporte?.createdAt,
-          updatedAt: reporte?.updatedAt,
-        });
-        setFotoNames(Array.isArray(data?.fotoNames) ? data.fotoNames : []);
+        const payload: unknown = await res.json();
+        const data = getPayloadData(payload);
+        const dataRecord = isRecord(data) ? data : null;
+        const reporteRecord = getRecord(dataRecord, 'reporte') ?? dataRecord;
+        const nextDetalle = reporteRecord ? normalizeReporte(reporteRecord, id) : null;
+        if (!nextDetalle) {
+          throw new Error('No pudimos leer el detalle del reporte.');
+        }
+        const nextFotos = await fetchFotos(id);
+        setDetalle(nextDetalle);
+        setDraft(nextDetalle);
+        setFotos(nextFotos);
+        setEditableFotos(nextFotos);
       } catch (err) {
         console.error('Detalle reporte error', err);
         setError(err instanceof Error ? err.message : 'No pudimos cargar el detalle.');
@@ -130,7 +216,7 @@ export default function ReporteDetallePage() {
     };
 
     fetchDetalle();
-  }, [accessToken, authLoading, baseUrl, id, isAuthenticated]);
+  }, [accessToken, authLoading, baseUrl, fetchFotos, id, isAuthenticated]);
 
   useEffect(() => {
     const fetchLookups = async () => {
@@ -149,34 +235,47 @@ export default function ReporteDetallePage() {
         ]);
 
         if (clientesRes.ok) {
-          const cPayload = await clientesRes.json();
-          const cData = (cPayload?.data as any) ?? cPayload;
+          const cPayload: unknown = await clientesRes.json();
+          const cData = getPayloadData(cPayload);
+          const cRecord = isRecord(cData) ? cData : null;
           const list =
-            (cData?.clients as any[]) ||
-            (cData?.clientes as any[]) ||
+            (Array.isArray(cRecord?.clients) ? cRecord.clients : null) ??
+            (Array.isArray(cRecord?.clientes) ? cRecord.clientes : null) ??
             (Array.isArray(cData) ? cData : []);
           setClientes(
-            list.map((c: any, idx: number) => ({
-              id: c?.id ?? c?.clienteId ?? `cliente-${idx}`,
-              nombre: c?.nombre ?? c?.clienteNombre ?? c?.cliente?.nombre ?? 'Sin nombre',
-            }))
+            list.map((item, idx) => {
+              const c: ApiRecord = isRecord(item) ? item : {};
+              const cliente = getRecord(c, 'cliente');
+              return {
+                id: getScalar(c.id) ?? getScalar(c.clienteId) ?? `cliente-${idx}`,
+                nombre:
+                  getString(c.nombre) ??
+                  getString(c.clienteNombre) ??
+                  getString(cliente?.nombre) ??
+                  'Sin nombre',
+              };
+            })
           );
         }
 
         if (coloracionesRes.ok) {
-          const sPayload = await coloracionesRes.json();
-          const sData = (sPayload?.data as any) ?? sPayload;
+          const sPayload: unknown = await coloracionesRes.json();
+          const sData = getPayloadData(sPayload);
+          const sRecord = isRecord(sData) ? sData : null;
           const list =
-            (sData?.coloraciones as any[]) || (Array.isArray(sData) ? sData : []);
+            (Array.isArray(sRecord?.coloraciones) ? sRecord.coloraciones : null) ??
+            (Array.isArray(sData) ? sData : []);
           setColoraciones(
             list
-              .map((item: any, idx: number) => {
-                const nombre = item?.nombre ?? item?.coloracion ?? item?.tipo;
+              .map((item, idx) => {
+                const record: ApiRecord = isRecord(item) ? item : {};
+                const nombre =
+                  getString(record.nombre) ?? getString(record.coloracion) ?? getString(record.tipo);
                 if (!nombre) return null;
                 return {
-                  id: item?.id ?? item?.coloracionId ?? `coloracion-${idx}`,
+                  id: getScalar(record.id) ?? getScalar(record.coloracionId) ?? `coloracion-${idx}`,
                   nombre,
-                  descripcion: item?.descripcion ?? item?.coloracion_desc ?? '',
+                  descripcion: getString(record.descripcion) ?? getString(record.coloracion_desc) ?? '',
                 };
               })
               .filter(Boolean) as { id: number | string; nombre: string; descripcion?: string }[]
@@ -189,6 +288,18 @@ export default function ReporteDetallePage() {
 
     fetchLookups();
   }, [accessToken, authLoading, baseUrl, isAuthenticated]);
+
+  useEffect(() => {
+    if (!editable) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [editable]);
 
   const formatDate = (date?: string) => {
     if (!date) return '—';
@@ -208,6 +319,12 @@ export default function ReporteDetallePage() {
     } catch {
       return date;
     }
+  };
+
+  const formatServiceTime = (time?: string) => {
+    if (!time) return '—';
+    const normalizedTime = normalizeTimeValue(time);
+    return normalizedTime || time;
   };
 
   const handleExport = async (documentType: 'pdf' | 'excel') => {
@@ -260,6 +377,7 @@ export default function ReporteDetallePage() {
   const handleEditStart = () => {
     if (!detalle) return;
     setDraft(detalle);
+    setEditableFotos(fotos);
     setNewPhotos([]);
     setEditable(true);
     setSaveError(null);
@@ -269,6 +387,7 @@ export default function ReporteDetallePage() {
     setEditable(false);
     setSaveError(null);
     setNewPhotos([]);
+    setEditableFotos(fotos);
     setDraft(detalle);
   };
 
@@ -279,6 +398,10 @@ export default function ReporteDetallePage() {
 
   const handleRemoveNewPhoto = (index: number) => {
     setNewPhotos((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleRemoveExistingPhoto = (photoId: number | string) => {
+    setEditableFotos((prev) => prev.filter((foto) => String(foto.id) !== String(photoId)));
   };
 
   const handleDeleteReporte = async () => {
@@ -324,6 +447,16 @@ export default function ReporteDetallePage() {
       setSaveError('Selecciona cliente y servicio.');
       return;
     }
+    const fechaServicioValue = toDateInputValue(draft.fecha ?? detalle?.fecha);
+    if (!fechaServicioValue) {
+      setSaveError('Selecciona la fecha del servicio.');
+      return;
+    }
+    const horaServicioValue = normalizeTimeValue(draft.horaServicio ?? detalle?.horaServicio);
+    if (!horaServicioValue) {
+      setSaveError('Selecciona la hora del servicio.');
+      return;
+    }
     const precioNumber =
       draft.precio !== undefined && draft.precio !== null && draft.precio !== ''
         ? Number(draft.precio)
@@ -341,6 +474,8 @@ export default function ReporteDetallePage() {
           idReporte: Number(draft.id ?? id),
           clienteId: Number(clienteIdValue),
           coloracion: Number(coloracionIdValue),
+          fechaServicio: fechaServicioValue,
+          horaServicio: horaServicioValue,
           formula: draft.formula ?? '',
           observaciones: draft.observaciones ?? '',
           precio: precioNumber,
@@ -350,32 +485,64 @@ export default function ReporteDetallePage() {
         const text = await res.text();
         throw new Error(text || 'No se pudo guardar el reporte.');
       }
-      const payload = await res.json();
-      const data = (payload?.data as any) ?? payload;
-      const updated = (data?.reporte as any) ?? data;
+      const payload: unknown = await res.json();
+      const data = getPayloadData(payload);
+      const dataRecord = isRecord(data) ? data : null;
+      const updated = getRecord(dataRecord, 'reporte') ?? dataRecord;
+      if (!updated) {
+        throw new Error('No pudimos leer el reporte actualizado.');
+      }
       const selectedColor = coloraciones.find(
         (c) => String(c.id) === String(updated?.coloracionId ?? coloracionIdValue)
       );
       const nextDetalle: ReporteDetalle = {
-        id: updated?.id ?? id,
-        clienteId: updated?.clienteId ?? clienteIdValue,
-        coloracionId: updated?.coloracionId ?? coloracionIdValue,
-        clienteNombre: updated?.clienteNombre ?? updated?.cliente?.nombre ?? draft.clienteNombre,
-        clienteTelefono: updated?.clienteTelefono ?? updated?.cliente?.telefono ?? draft.clienteTelefono,
-        clienteEmail: updated?.clienteEmail ?? updated?.cliente?.email ?? draft.clienteEmail,
-        fecha: updated?.fechaServicio ?? updated?.fecha ?? updated?.createdAt ?? draft.fecha,
-        horaServicio: updated?.horaServicio ?? draft.horaServicio,
+        id: getScalar(updated.id) ?? id,
+        clienteId: getScalar(updated.clienteId) ?? clienteIdValue,
+        coloracionId: getScalar(updated.coloracionId) ?? coloracionIdValue,
+        clienteNombre:
+          getString(updated.clienteNombre) ??
+          getString(getRecord(updated, 'cliente')?.nombre) ??
+          draft.clienteNombre,
+        clienteTelefono:
+          getString(updated.clienteTelefono) ??
+          getString(getRecord(updated, 'cliente')?.telefono) ??
+          draft.clienteTelefono,
+        clienteEmail:
+          getString(updated.clienteEmail) ??
+          getString(getRecord(updated, 'cliente')?.email) ??
+          draft.clienteEmail,
+        fecha: getString(updated.fechaServicio) ?? getString(updated.fecha) ?? draft.fecha,
+        horaServicio: getString(updated.horaServicio) ?? draft.horaServicio,
         coloracion:
-          updated?.coloracion ?? updated?.tipo ?? selectedColor?.nombre ?? draft.coloracion,
-        coloracion_desc: updated?.coloracion_desc ?? selectedColor?.descripcion ?? draft.coloracion_desc,
-        formula: updated?.formula ?? updated?.detalle ?? draft.formula,
-        observaciones: updated?.observaciones ?? updated?.nota ?? draft.observaciones,
-        precio: updated?.precio ?? draft.precio,
-        createdAt: updated?.createdAt ?? draft.createdAt,
-        updatedAt: updated?.updatedAt ?? draft.updatedAt,
+          getString(updated.coloracion) ?? getString(updated.tipo) ?? selectedColor?.nombre ?? draft.coloracion,
+        coloracion_desc:
+          getString(updated.coloracion_desc) ?? selectedColor?.descripcion ?? draft.coloracion_desc,
+        formula: getString(updated.formula) ?? getString(updated.detalle) ?? draft.formula,
+        observaciones: getString(updated.observaciones) ?? getString(updated.nota) ?? draft.observaciones,
+        precio: getScalar(updated.precio) ?? draft.precio,
+        createdAt: getString(updated.createdAt) ?? draft.createdAt,
+        updatedAt: getString(updated.updatedAt) ?? draft.updatedAt,
       };
       setDetalle(nextDetalle);
       setDraft(nextDetalle);
+
+      const removedFotos = fotos.filter(
+        (foto) => !editableFotos.some((editableFoto) => String(editableFoto.id) === String(foto.id))
+      );
+
+      for (const foto of removedFotos) {
+        const deleteRes = await fetch(`${baseUrl}/api/fotos-reportes/${foto.id}`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        if (!deleteRes.ok) {
+          const text = await deleteRes.text();
+          throw new Error(text || 'Se actualizó el reporte, pero no pudimos eliminar una foto.');
+        }
+      }
 
       if (newPhotos.length > 0) {
         const formData = new FormData();
@@ -392,19 +559,11 @@ export default function ReporteDetallePage() {
           const text = await photosRes.text();
           throw new Error(text || 'Se actualizó el reporte, pero no pudimos subir las fotos.');
         }
-
-        const photosPayload = await photosRes.json();
-        const photosData = (photosPayload?.data as any) ?? photosPayload;
-        const uploadedNames =
-          (Array.isArray(photosData?.fotoNames) ? photosData.fotoNames : null) ??
-          (Array.isArray(photosData?.fotos)
-            ? photosData.fotos.map((foto: { filename?: string }) => foto.filename).filter(Boolean)
-            : []);
-
-        if (uploadedNames.length > 0) {
-          setFotoNames((prev) => [...prev, ...uploadedNames]);
-        }
       }
+
+      const latestFotos = await fetchFotos(String(id));
+      setFotos(latestFotos);
+      setEditableFotos(latestFotos);
 
       setEditable(false);
       setNewPhotos([]);
@@ -555,11 +714,36 @@ export default function ReporteDetallePage() {
                     </div>
                     <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FBFF] px-4 py-3">
                       <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Fecha</p>
-                      <p className="text-sm font-semibold text-[#1A2B42]">{formatServiceDate(detalle?.fecha)}</p>
+                      {editable ? (
+                        <input
+                          type="date"
+                          value={toDateInputValue(draft?.fecha)}
+                          onChange={(e) =>
+                            setDraft((prev) => (prev ? { ...prev, fecha: e.target.value } : prev))
+                          }
+                          className="mt-1 w-full rounded-lg border border-[#E0E3E7] px-3 py-2 text-sm text-[#1F2937] outline-none focus:border-[#1A2B42]"
+                        />
+                      ) : (
+                        <p className="text-sm font-semibold text-[#1A2B42]">{formatServiceDate(detalle?.fecha)}</p>
+                      )}
                     </div>
                     <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FBFF] px-4 py-3">
                       <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Hora</p>
-                      <p className="text-sm font-semibold text-[#1A2B42]">{detalle?.horaServicio || '—'}</p>
+                      {editable ? (
+                        <input
+                          type="time"
+                          value={normalizeTimeValue(draft?.horaServicio)}
+                          onChange={(e) =>
+                            setDraft((prev) => (prev ? { ...prev, horaServicio: e.target.value } : prev))
+                          }
+                          className="mt-1 w-full rounded-lg border border-[#E0E3E7] px-3 py-2 text-sm text-[#1F2937] outline-none focus:border-[#1A2B42]"
+                          step="60"
+                        />
+                      ) : (
+                        <p className="text-sm font-semibold text-[#1A2B42]">
+                          {formatServiceTime(detalle?.horaServicio)}
+                        </p>
+                      )}
                     </div>
                     <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FBFF] px-4 py-3">
                       <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Servicio</p>
@@ -617,14 +801,12 @@ export default function ReporteDetallePage() {
                         </p>
                       )}
                     </div>
-                    <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FBFF] px-4 py-3">
-                      <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Creado</p>
-                      <p className="text-sm font-semibold text-[#1A2B42]">{formatDate(detalle?.createdAt)}</p>
-                    </div>
-                    <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FBFF] px-4 py-3">
-                      <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Actualizado</p>
-                      <p className="text-sm font-semibold text-[#1A2B42]">{formatDate(detalle?.updatedAt)}</p>
-                    </div>
+                    {hasBeenUpdated(detalle) && (
+                      <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FBFF] px-4 py-3">
+                        <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Actualizado</p>
+                        <p className="text-sm font-semibold text-[#1A2B42]">{formatDate(detalle?.updatedAt)}</p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid gap-4">
@@ -650,37 +832,6 @@ export default function ReporteDetallePage() {
                         className="min-h-[96px] rounded-lg border border-[#E0E3E7] px-3 py-2 text-sm text-[#1F2937] outline-none focus:border-[#1A2B42] disabled:bg-[#F3F4F6]"
                       />
                     </div>
-                    {editable && (
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-semibold text-[#666666]">Agregar más fotos</label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          onChange={(e) => handleNewPhotosChange(e.target.files)}
-                          className="rounded-lg border border-[#E0E3E7] px-3 py-2 text-sm text-[#1F2937] file:mr-3 file:rounded-md file:border-0 file:bg-[#EEF2FF] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[#1A2B42]"
-                        />
-                        {newPhotos.length > 0 && (
-                          <ul className="space-y-1">
-                            {newPhotos.map((file, idx) => (
-                              <li
-                                key={`${file.name}-${idx}`}
-                                className="flex items-center justify-between rounded-md bg-[#F5F7FA] px-3 py-2 text-xs text-[#334155]"
-                              >
-                                <span className="truncate pr-2">{file.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveNewPhoto(idx)}
-                                  className="rounded border border-[#E5E7EB] px-2 py-1 text-[11px] font-semibold text-[#334155] transition hover:bg-white"
-                                >
-                                  Quitar
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
                   </div>
 
                   {saveError && <p className="text-sm text-red-600">{saveError}</p>}
@@ -718,35 +869,85 @@ export default function ReporteDetallePage() {
                     </div>
                   )}
 
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-[#9AA0A6]">Fotos</p>
-                    {fotoNames.length === 0 ? (
-                      <p className="text-sm text-[#4B5563]">No hay fotos asociadas.</p>
-                    ) : (
-                      <div className="grid gap-3 sm:grid-cols-3 md:grid-cols-4">
-                        {fotoNames.map((name) => {
-                          const src = `${baseUrl}/images/${name}`;
-                          return (
-                            <div
-                              key={name}
-                              className="group relative overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm"
+                  <div className="flex flex-col gap-3">
+                    <label className="text-sm font-medium text-[#666666]">Evidencia fotográfica</label>
+                    <div className="flex flex-wrap gap-3">
+                      {editable && (
+                        <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#D1D5DB] bg-[#F9FAFB] text-xs font-semibold text-[#6B7280] hover:border-[#1A2B42] hover:text-[#1A2B42]">
+                          <input
+                            type="file"
+                            multiple
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handleNewPhotosChange(e.target.files)}
+                          />
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-8 w-8"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                          >
+                            <path d="M12 5v14" />
+                            <path d="M5 12h14" />
+                          </svg>
+                          Agregar
+                        </label>
+                      )}
+
+                      {(editable ? editableFotos : fotos).map((foto) => (
+                        <div
+                          key={`saved-${foto.id}`}
+                          className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl border border-[#E0E3E7] bg-white text-xs text-[#6B7280]"
+                        >
+                          {editable && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveExistingPhoto(foto.id)}
+                              className="absolute right-1 top-1 z-10 rounded-full bg-white/90 p-1 text-xs font-bold text-[#1A2B42] shadow hover:bg-white"
+                              aria-label={`Eliminar imagen ${foto.filename}`}
                             >
-                              <div className="relative h-40 w-full bg-[#F5F7FA]">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={src}
-                                  alt={name}
-                                  className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
-                                  loading="lazy"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2 truncate px-3 py-2 text-xs font-semibold text-[#1A2B42]">
-                                📎 <span className="truncate">{name}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                              ×
+                            </button>
+                          )}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={getPhotoSrc(foto.filename)}
+                            alt={foto.filename}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                      ))}
+
+                      {editable &&
+                        newPhotos.map((file, idx) => (
+                          <div
+                            key={`new-${file.name}-${idx}`}
+                            className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl border border-[#E0E3E7] bg-white text-xs text-[#6B7280]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveNewPhoto(idx)}
+                              className="absolute right-1 top-1 z-10 rounded-full bg-white/90 p-1 text-xs font-bold text-[#1A2B42] shadow hover:bg-white"
+                              aria-label={`Eliminar imagen nueva ${file.name}`}
+                            >
+                              ×
+                            </button>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={URL.createObjectURL(file)}
+                              alt={file.name}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ))}
+                    </div>
+                    {!editable && fotos.length === 0 && (
+                      <p className="text-sm text-[#4B5563]">No hay fotos asociadas.</p>
+                    )}
+                    {editable && editableFotos.length === 0 && newPhotos.length === 0 && (
+                      <p className="text-sm text-[#4B5563]">Agrega fotos o deja el reporte sin imágenes.</p>
                     )}
                   </div>
                 </div>
