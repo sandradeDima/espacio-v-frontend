@@ -104,6 +104,8 @@ const navItems: NavItem[] = [
   { key: 'inicio', label: 'Inicio', href: '/home', icon: HomeIcon },
 ];
 
+const ADMIN_ROLE_ID = 2;
+
 interface DashboardShellProps {
   children: ReactNode;
 }
@@ -112,7 +114,7 @@ export default function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
-  const isAdmin = user?.role === 2;
+  const isAdmin = user?.role === ADMIN_ROLE_ID;
 
   const filteredNavItems = isAdmin
     ? navItems

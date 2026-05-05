@@ -37,6 +37,7 @@ export default function ClientesPage() {
     nombre: '',
     email: '',
     telefono: '',
+    comentarios: '',
   });
   const [creatingClient, setCreatingClient] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -48,6 +49,7 @@ export default function ClientesPage() {
     nombre: '',
     email: '',
     telefono: '',
+    comentarios: '',
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingClient, setDeletingClient] = useState(false);
@@ -191,7 +193,7 @@ export default function ClientesPage() {
   };
 
   const handleOpenCreate = () => {
-    setCreateForm({ nombre: '', email: '', telefono: '' });
+    setCreateForm({ nombre: '', email: '', telefono: '', comentarios: '' });
     setCreateError('');
     setCreateModalOpen(true);
   };
@@ -205,6 +207,7 @@ export default function ClientesPage() {
         ...createForm,
         email: createForm.email.trim() || null,
         telefono: onlyDigits(createForm.telefono),
+        comentarios: createForm.comentarios.trim() || null,
       };
       await api.post<MensajeApi<Cliente>>('/api/clientes/', payload);
       setCreateModalOpen(false);
@@ -229,6 +232,7 @@ export default function ClientesPage() {
       nombre: client.nombre ?? '',
       email: client.email ?? '',
       telefono: client.telefono ?? '',
+      comentarios: client.comentarios ?? '',
     });
     setEditError('');
     setEditModalOpen(true);
@@ -252,6 +256,7 @@ export default function ClientesPage() {
         ...editForm,
         email: editForm.email.trim() || null,
         telefono: onlyDigits(editForm.telefono),
+        comentarios: editForm.comentarios.trim() || null,
       };
       const response = await api.put<MensajeApi<Cliente>>(
         `/api/clientes/${selectedClient.id}`,
@@ -619,6 +624,20 @@ export default function ClientesPage() {
                     className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
                   />
                 </div>
+                <div className="flex flex-col gap-1 sm:col-span-2">
+                  <label className="text-sm font-semibold text-[#333333]" htmlFor="create-comentarios">
+                    Comentarios
+                  </label>
+                  <textarea
+                    id="create-comentarios"
+                    rows={4}
+                    value={createForm.comentarios}
+                    onChange={(event) =>
+                      setCreateForm((prev) => ({ ...prev, comentarios: event.target.value }))
+                    }
+                    className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
+                  />
+                </div>
               </div>
 
               {createError && (
@@ -708,6 +727,20 @@ export default function ClientesPage() {
                     value={editForm.telefono}
                     onChange={(event) =>
                       setEditForm((prev) => ({ ...prev, telefono: onlyDigits(event.target.value) }))
+                    }
+                    className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
+                  />
+                </div>
+                <div className="flex flex-col gap-1 sm:col-span-2">
+                  <label className="text-sm font-semibold text-[#333333]" htmlFor="edit-comentarios">
+                    Comentarios
+                  </label>
+                  <textarea
+                    id="edit-comentarios"
+                    rows={4}
+                    value={editForm.comentarios}
+                    onChange={(event) =>
+                      setEditForm((prev) => ({ ...prev, comentarios: event.target.value }))
                     }
                     className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
                   />

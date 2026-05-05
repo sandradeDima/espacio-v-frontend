@@ -11,11 +11,21 @@ type Coloracion = {
   id: number | string;
   nombre: string;
   descripcion?: string;
+  precio?: number | null;
   createdAt?: string;
   updatedAt?: string;
 };
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20];
+
+const formatMoneyInput = (raw: string) => {
+  const digitsOnly = raw.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  if (!digitsOnly) return '';
+  const padded = digitsOnly.padStart(3, '0');
+  const intPart = padded.slice(0, -2);
+  const decPart = padded.slice(-2);
+  return `${intPart}.${decPart}`;
+};
 
 export default function ConfiguracionesPage() {
   const api = useApi();
@@ -30,7 +40,7 @@ export default function ConfiguracionesPage() {
 
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [selected, setSelected] = useState<Coloracion | null>(null);
-  const [form, setForm] = useState({ nombre: '', descripcion: '' });
+  const [form, setForm] = useState({ nombre: '', descripcion: '', precio: '' });
   const [saving, setSaving] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -98,14 +108,21 @@ export default function ConfiguracionesPage() {
   }, [coloraciones.length, page, size]);
 
   const openCreate = () => {
-    setForm({ nombre: '', descripcion: '' });
+    setForm({ nombre: '', descripcion: '', precio: '' });
     setSelected(null);
     setModalMode('create');
   };
 
   const openEdit = (item: Coloracion) => {
     setSelected(item);
-    setForm({ nombre: item.nombre, descripcion: item.descripcion ?? '' });
+    setForm({
+      nombre: item.nombre,
+      descripcion: item.descripcion ?? '',
+      precio:
+        item.precio === null || item.precio === undefined
+          ? ''
+          : formatMoneyInput(String(item.precio)),
+    });
     setModalMode('edit');
   };
 
@@ -113,11 +130,15 @@ export default function ConfiguracionesPage() {
     e.preventDefault();
     setSaving(true);
     try {
+      const payload = {
+        ...form,
+        precio: form.precio.trim() === '' ? null : Number(form.precio),
+      };
       if (modalMode === 'create') {
-        await api.post<MensajeApi<Coloracion>>('/api/coloraciones/', form);
+        await api.post<MensajeApi<Coloracion>>('/api/coloraciones/', payload);
         setToastMessage('Servicio creado con éxito');
       } else if (modalMode === 'edit' && selected) {
-        await api.put<MensajeApi<Coloracion>>(`/api/coloraciones/${selected.id}`, form);
+        await api.put<MensajeApi<Coloracion>>(`/api/coloraciones/${selected.id}`, payload);
         setToastMessage('Servicio actualizado');
       }
       setTimeout(() => setToastMessage(null), 2500);
@@ -254,6 +275,7 @@ export default function ConfiguracionesPage() {
                     <th className="px-4 py-3">ID</th>
                     <th className="px-4 py-3">Nombre</th>
                     <th className="px-4 py-3">Descripción</th>
+                    <th className="px-4 py-3">Precio</th>
                     <th className="px-4 py-3">Creado</th>
                     <th className="px-4 py-3">Actualizado</th>
                     <th className="px-4 py-3 text-center">Acciones</th>
@@ -262,7 +284,7 @@ export default function ConfiguracionesPage() {
                 <tbody>
                   {!loading && pageData.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-sm text-[#666666]">
+                      <td colSpan={7} className="px-4 py-10 text-center text-sm text-[#666666]">
                         No hay servicios. Crea uno nuevo para comenzar.
                       </td>
                     </tr>
@@ -270,7 +292,7 @@ export default function ConfiguracionesPage() {
 
                   {loading && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center">
+                      <td colSpan={7} className="px-4 py-10 text-center">
                         <div className="inline-flex items-center gap-3 text-sm text-[#666666]">
                           <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#1A2B42] border-t-transparent" />
                           Cargando servicios...
@@ -286,6 +308,9 @@ export default function ConfiguracionesPage() {
                         <td className="px-4 py-4 font-semibold">{item.nombre}</td>
                         <td className="px-4 py-4 text-sm text-[#4B5563]">
                           {item.descripcion || '—'}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-[#4B5563]">
+                          {item.precio === null || item.precio === undefined ? '—' : `Bs. ${item.precio}`}
                         </td>
                         <td className="px-4 py-4 text-xs text-[#6B7280]">
                           {formatDate(item.createdAt)}
@@ -384,6 +409,20 @@ export default function ConfiguracionesPage() {
                 rows={3}
                 value={form.descripcion}
                 onChange={(e) => setForm((p) => ({ ...p, descripcion: e.target.value }))}
+                className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-semibold text-[#333333]" htmlFor="serv-precio">
+                Precio opcional (Bs.)
+              </label>
+              <input
+                id="serv-precio"
+                type="text"
+                inputMode="numeric"
+                value={form.precio}
+                onChange={(e) => setForm((p) => ({ ...p, precio: formatMoneyInput(e.target.value) }))}
+                placeholder="0.00"
                 className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
               />
             </div>

@@ -17,7 +17,7 @@ type Reporte = {
   coloracion?: string;
   coloracion_desc?: string;
   formula?: string;
-  observaciones?: string;
+  precio?: string | number;
 };
 
 type ApiRecord = Record<string, unknown>;
@@ -127,10 +127,10 @@ export default function ReportesPage() {
             (typeof record.formula === 'string' ? record.formula : undefined) ??
             (typeof record.detalle === 'string' ? record.detalle : undefined) ??
             '',
-          observaciones:
-            (typeof record.observaciones === 'string' ? record.observaciones : undefined) ??
-            (typeof record.nota === 'string' ? record.nota : undefined) ??
-            '',
+          precio:
+            typeof record.precio === 'string' || typeof record.precio === 'number'
+              ? record.precio
+              : '',
         };
       });
 
@@ -662,6 +662,11 @@ export default function ReportesPage() {
                             {reporte.coloracion?.toLowerCase() || '—'}
                           </span>
                           <p className="text-xs text-[#4B5563]">{reporte.formula || 'Sin fórmula'}</p>
+                          <p className="text-xs font-semibold text-[#1A2B42]">
+                            {reporte.precio !== '' && reporte.precio !== undefined && reporte.precio !== null
+                              ? `Bs. ${reporte.precio}`
+                              : 'Sin precio'}
+                          </p>
                         </div>
 
                         <div className="mt-4 grid grid-cols-2 gap-2">
@@ -701,7 +706,7 @@ export default function ReportesPage() {
                       <th className="px-4 py-3">Fecha</th>
                       <th className="px-4 py-3">Tipo de Coloración</th>
                       <th className="px-4 py-3">Fórmula</th>
-                      <th className="px-4 py-3">Observaciones</th>
+                      <th className="px-4 py-3">Precio</th>
                       <th className="px-4 py-3 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -758,7 +763,11 @@ export default function ReportesPage() {
                               </span>
                             </td>
                             <td className="px-4 py-4 text-sm text-[#4B5563]">{reporte.formula || '—'}</td>
-                            <td className="px-4 py-4 text-sm text-[#4B5563]">{reporte.observaciones || '—'}</td>
+                            <td className="px-4 py-4 text-sm text-[#4B5563]">
+                              {reporte.precio !== '' && reporte.precio !== undefined && reporte.precio !== null
+                                ? `Bs. ${reporte.precio}`
+                                : '—'}
+                            </td>
                             <td className="px-4 py-4 text-right">
                               <div className="inline-flex items-center gap-2">
                                 <Link

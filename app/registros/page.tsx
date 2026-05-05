@@ -14,6 +14,7 @@ type Coloracion = {
   id: number | string;
   nombre: string;
   descripcion?: string;
+  precio?: number | null;
 };
 
 type RegistroForm = {
@@ -36,6 +37,14 @@ type CreatedReportePayload = {
   };
 };
 
+type ClienteApiPayload = Cliente & {
+  cliente?: Cliente;
+};
+
+type ColoracionApiPayload = Coloracion & {
+  coloracion?: Coloracion;
+};
+
 const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
 const toLocalDateTimeInputValue = (date = new Date()) => {
@@ -48,6 +57,12 @@ const toLocalDateTimeInputValue = (date = new Date()) => {
 
 const getCreatedReporteId = (payload?: CreatedReportePayload) =>
   payload?.reporte?.id ?? payload?.reporte?.reporteId ?? payload?.id ?? payload?.reporteId;
+
+const getCreatedClient = (payload?: ClienteApiPayload): Cliente | undefined =>
+  payload?.cliente ?? payload;
+
+const getCreatedService = (payload?: ColoracionApiPayload): Coloracion | undefined =>
+  payload?.coloracion ?? payload;
 
 export default function RegistroServicioPage() {
   const api = useApi();
@@ -69,7 +84,11 @@ export default function RegistroServicioPage() {
   const [showServiceDropdown, setShowServiceDropdown] = useState(false);
 
   const [showCreateService, setShowCreateService] = useState(false);
-  const [createServiceForm, setCreateServiceForm] = useState({ nombre: '', descripcion: '' });
+  const [createServiceForm, setCreateServiceForm] = useState({
+    nombre: '',
+    descripcion: '',
+    precio: '',
+  });
   const [creatingService, setCreatingService] = useState(false);
   const [createServiceError, setCreateServiceError] = useState('');
 
@@ -91,6 +110,7 @@ export default function RegistroServicioPage() {
     nombre: '',
     email: '',
     telefono: '',
+    comentarios: '',
   });
   const [creatingClient, setCreatingClient] = useState(false);
   const [createClientError, setCreateClientError] = useState('');
@@ -168,6 +188,7 @@ export default function RegistroServicioPage() {
   const handleSelectClient = (client: Cliente) => {
     setSelectedClient(client);
     setForm((prev) => ({ ...prev, clienteId: client.id }));
+    setClientQuery(client.nombre);
     setShowClientDropdown(false);
   };
 
@@ -177,6 +198,8 @@ export default function RegistroServicioPage() {
       ...prev,
       coloracionId: service.id,
       tipoServicio: service.nombre,
+      precio:
+        service.precio === null || service.precio === undefined ? prev.precio : String(service.precio),
     }));
     setServiceQuery(service.nombre);
     setShowServiceDropdown(false);
@@ -260,7 +283,12 @@ export default function RegistroServicioPage() {
 
   const serviceLabel = useMemo(() => {
     if (!selectedService) return 'Buscar servicio...';
-    return `${selectedService.nombre}${selectedService.descripcion ? ` · ${selectedService.descripcion}` : ''}`;
+    const description = selectedService.descripcion ? ` · ${selectedService.descripcion}` : '';
+    const price =
+      selectedService.precio === null || selectedService.precio === undefined
+        ? ''
+        : ` · Bs. ${selectedService.precio}`;
+    return `${selectedService.nombre}${description}${price}`;
   }, [selectedService]);
 
   const handleCreateClient = async (e: FormEvent<HTMLFormElement>) => {
@@ -272,10 +300,10 @@ export default function RegistroServicioPage() {
         ...createClientForm,
         email: createClientForm.email.trim() || null,
         telefono: onlyDigits(createClientForm.telefono),
+        comentarios: createClientForm.comentarios.trim() || null,
       };
       const resp = await api.post<MensajeApi<Cliente>>('/api/clientes/', payload);
-      const newClient =
-        (resp?.data as any)?.cliente || (resp?.data as any) || (resp as unknown as Cliente);
+      const newClient = getCreatedClient(resp?.data as ClienteApiPayload | undefined);
       if (newClient) {
         setSelectedClient(newClient);
         setForm((prev) => ({ ...prev, clienteId: newClient.id }));
@@ -283,7 +311,7 @@ export default function RegistroServicioPage() {
         setClients([newClient, ...clients]);
       }
       setShowCreateClient(false);
-      setCreateClientForm({ nombre: '', email: '', telefono: '' });
+      setCreateClientForm({ nombre: '', email: '', telefono: '', comentarios: '' });
     } catch (error) {
       console.error('Error creating client', error);
       setCreateClientError('No pudimos crear el cliente. Intenta nuevamente.');
@@ -297,21 +325,28 @@ export default function RegistroServicioPage() {
     setCreatingService(true);
     setCreateServiceError('');
     try {
-      const resp = await api.post<MensajeApi<Coloracion>>('/api/coloraciones/', createServiceForm);
-      const newService =
-        (resp?.data as any)?.coloracion || (resp?.data as any) || (resp as unknown as Coloracion);
+      const payload = {
+        ...createServiceForm,
+        precio: createServiceForm.precio.trim() === '' ? null : Number(createServiceForm.precio),
+      };
+      const resp = await api.post<MensajeApi<Coloracion>>('/api/coloraciones/', payload);
+      const newService = getCreatedService(resp?.data as ColoracionApiPayload | undefined);
       if (newService) {
         setSelectedService(newService);
         setForm((prev) => ({
           ...prev,
           coloracionId: newService.id,
           tipoServicio: newService.nombre,
+          precio:
+            newService.precio === null || newService.precio === undefined
+              ? prev.precio
+              : String(newService.precio),
         }));
         setServiceQuery(newService.nombre || '');
         setServices((prev) => [newService, ...prev]);
       }
       setShowCreateService(false);
-      setCreateServiceForm({ nombre: '', descripcion: '' });
+      setCreateServiceForm({ nombre: '', descripcion: '', precio: '' });
     } catch (error) {
       console.error('Error creating service', error);
       setCreateServiceError('No pudimos crear el servicio. Intenta nuevamente.');
@@ -332,7 +367,6 @@ export default function RegistroServicioPage() {
 
   useEffect(() => {
     setForm((prev) => ({ ...prev, precio: formatMoneyInput(prev.precio) }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -416,14 +450,20 @@ export default function RegistroServicioPage() {
                               }`}
                             >
                               <span>{client.nombre}</span>
-                              <span className="text-xs text-[#6B7280]">{client.telefono || '—'}</span>
+                              <span className="text-xs text-[#6B7280]">
+                                {client.telefono || '—'}
+                                {client.comentarios ? ` · ${client.comentarios}` : ''}
+                              </span>
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
                     <div className="mt-2 rounded-lg bg-[#F5F7FA] px-3 py-2 text-sm text-[#333333]">
-                      {clienteLabel}
+                      <div className="font-medium">{clienteLabel}</div>
+                      <div className="mt-1 text-xs text-[#6B7280]">
+                        {selectedClient?.comentarios || 'Sin comentarios'}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -462,7 +502,7 @@ export default function RegistroServicioPage() {
                       type="button"
                       className="text-sm font-semibold text-[#1A2B42] hover:underline"
                       onClick={() => {
-                        setCreateServiceForm({ nombre: '', descripcion: '' });
+                        setCreateServiceForm({ nombre: '', descripcion: '', precio: '' });
                         setCreateServiceError('');
                         setShowCreateService(true);
                       }}
@@ -523,6 +563,9 @@ export default function RegistroServicioPage() {
                                 <span>{service.nombre}</span>
                                 <span className="text-xs text-[#6B7280]">
                                   {service.descripcion || '—'}
+                                  {service.precio === null || service.precio === undefined
+                                    ? ''
+                                    : ` · Bs. ${service.precio}`}
                                 </span>
                               </button>
                             ))}
@@ -683,7 +726,18 @@ export default function RegistroServicioPage() {
               className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
             />
           </div>
-
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-semibold text-[#333333]" htmlFor="new-comentarios">
+              Comentarios
+            </label>
+            <textarea
+              id="new-comentarios"
+              rows={4}
+              value={createClientForm.comentarios}
+              onChange={(e) => setCreateClientForm((p) => ({ ...p, comentarios: e.target.value }))}
+              className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
+            />
+          </div>
           {createClientError && (
             <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
               {createClientError}
@@ -739,7 +793,22 @@ export default function RegistroServicioPage() {
               className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
             />
           </div>
-
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-semibold text-[#333333]" htmlFor="new-servicio-precio">
+              Precio opcional (Bs.)
+            </label>
+            <input
+              id="new-servicio-precio"
+              type="text"
+              inputMode="numeric"
+              value={createServiceForm.precio}
+              onChange={(e) =>
+                setCreateServiceForm((p) => ({ ...p, precio: formatMoneyInput(e.target.value) }))
+              }
+              placeholder="0.00"
+              className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
+            />
+          </div>
           {createServiceError && (
             <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{createServiceError}</div>
           )}

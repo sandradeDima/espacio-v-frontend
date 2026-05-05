@@ -13,11 +13,13 @@ type SortField = 'name' | 'email' | 'createdAt';
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 const USERS_BASE = '/api/user';
+const ADMIN_ROLE_ID = 2;
+const USER_ROLE_ID = 1;
 
 export default function UsuariosPage() {
   const api = useApi();
   const { isAuthenticated, isLoading, user: currentUser } = useAuth();
-  const isAdmin = currentUser?.role === 2;
+  const isAdmin = currentUser?.role === ADMIN_ROLE_ID;
 
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(10);
@@ -47,7 +49,7 @@ export default function UsuariosPage() {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 1,
+    role: USER_ROLE_ID,
   });
   const [creatingUser, setCreatingUser] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -58,7 +60,7 @@ export default function UsuariosPage() {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 1,
+    role: USER_ROLE_ID,
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState('');
@@ -190,7 +192,7 @@ export default function UsuariosPage() {
   };
 
   const handleOpenCreate = () => {
-    setCreateForm({ name: '', email: '', password: '', confirmPassword: '', role: 1 });
+    setCreateForm({ name: '', email: '', password: '', confirmPassword: '', role: USER_ROLE_ID });
     setCreateError('');
     setCreateModalOpen(true);
   };
@@ -389,8 +391,8 @@ export default function UsuariosPage() {
                     className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#fcd34f]"
                   >
                     <option value="">Todos</option>
-                    <option value="1">Usuario</option>
-                    <option value="2">Administrador</option>
+                    <option value={ADMIN_ROLE_ID}>Administrador</option>
+                    <option value={USER_ROLE_ID}>Usuario</option>
                   </select>
                 </div>
               </div>
@@ -523,12 +525,12 @@ export default function UsuariosPage() {
                         <td className="px-4 py-4 text-xs">
                           <span
                             className={`rounded-full px-3 py-1 font-semibold ${
-                              user.role === 2
+                              user.role === ADMIN_ROLE_ID
                                 ? 'bg-[#0B0B0D] text-white'
                                 : 'bg-[#fcd34f]/50 text-[#7a5b00]'
                             }`}
                           >
-                            {user.role === 2 ? 'Administrador' : 'Usuario'}
+                            {user.role === ADMIN_ROLE_ID ? 'Administrador' : 'Usuario'}
                           </span>
                         </td>
                         <td className="px-4 py-4 text-sm text-[#666666]">{formatDate(user.createdAt)}</td>
@@ -668,8 +670,8 @@ export default function UsuariosPage() {
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, role: Number(e.target.value) }))}
                 className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
               >
-                <option value={1}>Usuario</option>
-                <option value={2}>Administrador</option>
+                <option value={USER_ROLE_ID}>Usuario</option>
+                <option value={ADMIN_ROLE_ID}>Administrador</option>
               </select>
             </div>
           </div>
@@ -764,8 +766,8 @@ export default function UsuariosPage() {
                 onChange={(e) => setEditForm((prev) => ({ ...prev, role: Number(e.target.value) }))}
                 className="rounded-xl border border-[#E0E3E7] px-4 py-3 text-sm text-[#333333] outline-none transition focus:border-[#1A2B42]"
               >
-                <option value={1}>Usuario</option>
-                <option value={2}>Administrador</option>
+                <option value={USER_ROLE_ID}>Usuario</option>
+                <option value={ADMIN_ROLE_ID}>Administrador</option>
               </select>
             </div>
           </div>

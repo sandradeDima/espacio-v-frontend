@@ -132,7 +132,7 @@ export default function ReporteDetallePage() {
   const [editableFotos, setEditableFotos] = useState<FotoReporte[]>([]);
   const [clientes, setClientes] = useState<{ id: number | string; nombre: string }[]>([]);
   const [coloraciones, setColoraciones] = useState<
-    { id: number | string; nombre: string; descripcion?: string }[]
+    { id: number | string; nombre: string; descripcion?: string; precio?: number | null }[]
   >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -276,9 +276,20 @@ export default function ReporteDetallePage() {
                   id: getScalar(record.id) ?? getScalar(record.coloracionId) ?? `coloracion-${idx}`,
                   nombre,
                   descripcion: getString(record.descripcion) ?? getString(record.coloracion_desc) ?? '',
+                  precio:
+                    typeof record.precio === 'number'
+                      ? record.precio
+                      : typeof record.precio === 'string'
+                        ? Number(record.precio)
+                        : null,
                 };
               })
-              .filter(Boolean) as { id: number | string; nombre: string; descripcion?: string }[]
+              .filter(Boolean) as {
+                id: number | string;
+                nombre: string;
+                descripcion?: string;
+                precio?: number | null;
+              }[]
           );
         }
       } catch (err) {
@@ -759,6 +770,10 @@ export default function ReporteDetallePage() {
                                 coloracionId: selected?.id ?? e.target.value,
                                 coloracion: selected?.nombre ?? prev.coloracion,
                                 coloracion_desc: selected?.descripcion ?? prev.coloracion_desc,
+                                precio:
+                                  selected?.precio === null || selected?.precio === undefined
+                                    ? prev.precio
+                                    : selected.precio,
                               };
                             })
                           }
